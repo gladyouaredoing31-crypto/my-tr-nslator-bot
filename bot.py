@@ -4,7 +4,7 @@ import secrets
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "8837183643:AAGZXuqL6CmB_uj1yVPqvpM5lx7duDzTheg")
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "8837183643:AAGn77c7A2fWdi1H7S45vOa8DuFj6VYEcBk")
 
 # ============================================================
 # ТВОЙ TELEGRAM ID (узнать через @userinfobot)
