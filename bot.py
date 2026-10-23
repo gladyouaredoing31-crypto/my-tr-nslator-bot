@@ -1,315 +1,110 @@
-import logging
+import vk_api
+from vk_api.bot_longpoll import VkBotLongPoll, VkBotEventType
+import random
+import time
 import os
-import secrets
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
-
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "8837183643:AAGn77c7A2fWdi1H7S45vOa8DuFj6VYEcBk")
 
 # ============================================================
-# ТВОЙ TELEGRAM ID (узнать через @userinfobot)
+# НАСТРОЙКИ
 # ============================================================
-ADMIN_ID = 1673532605  # ← ЗАМЕНИ НА СВОЙ ID, например: ADMIN_ID = 123456789
+TOKEN = os.environ.get("VK_TOKEN", "vk1.a.NeVzXhHIacAAhMagzCsuKF01C5eCdo9NN5eXDG5TRyklhCV_67EA8Pib3Q-LjGXm-heGXwPq4w0eX2mCJzk_2AaJ1pyYeUWtT-kRC0N_ewpDHD2Phig1yHRHiqCtGVeReu-kyMvOprN3UTxQCoosSvunU_aOY0QY555H6aZAb41p7Vcz3Rfy-eQypM9rK7a-YkzGOpevpE4g5bW-zyPYLg")
+GROUP_ID = os.environ.get("VK_GROUP_ID", "229194730")
 
-logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO)
+# ТВОЙ ЛИЧНЫЙ ID (чтобы бот слушался только тебя)
+ADMIN_ID = 697665022  # <--- ЗАМЕНИ НА СВОЙ ID (цифры)
 
-codes = {}
-owners = {}
-
-
-def get_owner(user_id):
-    if user_id not in owners:
-        code = secrets.token_urlsafe(4)
-        owners[user_id] = {
-            "code": code,
-            "messages_received": 0,
-            "first_seen": None,
-            "last_seen": None,
-            "username": None,
-        }
-        codes[code] = user_id
-    return owners[user_id]
-
+TEXT_FILE = "ad_text.txt"
 
 # ============================================================
-# /start
+# ФУНКЦИИ
 # ============================================================
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    import time
-    user = update.effective_user
+def get_ad_text():
+    if os.path.exists(TEXT_FILE):
+        with open(TEXT_FILE, 'r', encoding='utf-8') as f:
+            return f.read().strip()
+    return "Реклама пока не задана. Напиши /текст ..."
 
-    if context.args:
-        code = context.args[0]
-        if code in codes and codes[code] != user.id:
-            context.user_data["sending_to"] = codes[code]
-            await update.message.reply_text(
-                "🚀 Здесь можно отправить анонимное сообщение человеку,\n"
-                "который опубликовал эту ссылку.\n\n"
-                "⚡ Напиши сюда всё, что хочешь ему передать, и через несколько\n"
-                "секунд он получит твоё сообщение, но не будет знать от кого.\n\n"
-                "📝 Отправить можно: текст, фото, видео, стикеры, голосовые и\n"
-                "видеосообщения (кружки)",
-                reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("❌ Отменить отправку", callback_data="cancel_send")
-                ]])
-            )
-            return
-        else:
-            await update.message.reply_text("❌ Ссылка недействительна.")
-            return
+def save_ad_text(text):
+    with open(TEXT_FILE, 'w', encoding='utf-8') as f:
+        f.write(text)
 
-    o = get_owner(user.id)
-    now = int(time.time())
-    if not o["first_seen"]:
-        o["first_seen"] = now
-    o["last_seen"] = now
-    o["username"] = user.username or user.first_name or str(user.id)
+vk_session = vk_api.VkApi(token=TOKEN)
+vk = vk_session.get_api()
+longpoll = VkBotLongPoll(vk_session, GROUP_ID)
 
-    bot_username = (await context.bot.get_me()).username
-    link = "https://t.me/" + bot_username + "?start=" + o["code"]
+print("✅ Бот запущен (Режим ЛС)")
 
-    text = (
-        "👋 Привет! Это бот для анонимных вопросов.\n\n"
-        "📢 Как работает:\n"
-        "1️⃣ Опубликуй свою ссылку (ниже) в канале, чате или соцсетях\n"
-        "2️⃣ Люди будут писать тебе анонимно\n"
-        "3️⃣ Ты получишь сообщение сюда, но не узнаешь от кого\n\n"
-        "🔗 Твоя ссылка:\n" + link + "\n\n"
-        "👇 Скопируй её и отправь куда хочешь."
-    )
-
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📋 Скопировать ссылку", callback_data="copy_link")],
-        [InlineKeyboardButton("📊 Моя статистика", callback_data="my_stats")],
-    ])
-
-    await update.message.reply_text(text, reply_markup=keyboard)
-
+def send_msg(peer_id, text):
+    try:
+        vk.messages.send(peer_id=peer_id, message=text, random_id=random.randint(0, 2**31))
+    except Exception as e:
+        print(f"❌ Ошибка отправки в {peer_id}: {e}")
 
 # ============================================================
-# /help
+# ОСНОВНОЙ ЦИКЛ
 # ============================================================
-async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "📖 Помощь\n\n"
-        "/start — показать твою ссылку\n"
-        "/my_link — снова показать ссылку + статистику\n"
-        "/help — эта справка\n\n"
-        "Как пользоваться:\n"
-        "1. Получи ссылку через /start\n"
-        "2. Опубликуй её где угодно\n"
-        "3. Тебе будут писать анонимно\n"
-        "4. Ты не узнаешь, кто именно написал"
-    )
-
-
-# ============================================================
-# /my_link
-# ============================================================
-async def my_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    o = get_owner(user.id)
-    bot_username = (await context.bot.get_me()).username
-    link = "https://t.me/" + bot_username + "?start=" + o["code"]
-    await update.message.reply_text(
-        "🔗 Твоя ссылка:\n\n" + link + "\n\n"
-        "📊 Получено сообщений: " + str(o["messages_received"]),
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("📋 Скопировать", callback_data="copy_link")]
-        ])
-    )
-
-
-# ============================================================
-# /stats — СЕКРЕТНАЯ КОМАНДА ДЛЯ АДМИНА
-# ============================================================
-async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Статистика — видит ТОЛЬКО админ"""
-    user = update.effective_user
-
-    # Если это не админ — молча выходим (бот как будто не знает команду)
-    if user.id != ADMIN_ID:
-        return
-
-    import time
-    now = int(time.time())
-
-    total_users = len(owners)
-    total_messages = sum(o["messages_received"] for o in owners.values())
-
-    # Сколько активных за 24 часа
-    active_24h = sum(1 for o in owners.values() if o["last_seen"] and now - o["last_seen"] < 86400)
-
-    text = (
-        "📊 <b>СТАТИСТИКА БОТА</b>\n"
-        "━━━━━━━━━━━━━━━━━\n\n"
-        "👥 <b>Всего пользователей:</b> " + str(total_users) + "\n"
-        "📨 <b>Всего анонимок:</b> " + str(total_messages) + "\n"
-        "🔥 <b>Активных за 24ч:</b> " + str(active_24h) + "\n\n"
-    )
-
-    # Топ-5 по анонимкам
-    if owners:
-        top = sorted(owners.items(), key=lambda x: -x[1]["messages_received"])[:5]
-        text += "🏆 <b>Топ-5 по анонимкам:</b>\n"
-        for i, (uid, o) in enumerate(top):
-            medal = ["🥇", "🥈", "🥉"][i] if i < 3 else str(i + 1) + "."
-            username = o.get("username") or str(uid)
-            text += medal + " " + username + " — " + str(o["messages_received"]) + " шт.\n"
-        text += "\n"
-
-    # Последние 5 активных
-    if owners:
-        recent = sorted(
-            [(uid, o) for uid, o in owners.items() if o["last_seen"]],
-            key=lambda x: -x[1]["last_seen"]
-        )[:5]
-        if recent:
-            text += "🕒 <b>Последние активные:</b>\n"
-            for uid, o in recent:
-                username = o.get("username") or str(uid)
-                diff = now - o["last_seen"]
-                if diff < 60:
-                    ago = "только что"
-                elif diff < 3600:
-                    ago = str(diff // 60) + " мин назад"
-                elif diff < 86400:
-                    ago = str(diff // 3600) + " ч назад"
+for event in longpoll.listen():
+    if event.type == VkBotEventType.MESSAGE_NEW:
+        msg = event.obj.message
+        peer_id = msg['peer_id']
+        text = msg['text'].strip()
+        from_id = msg['from_id']
+        
+        # Работаем только если пишет Админ в ЛС (peer_id = from_id)
+        if from_id == ADMIN_ID and peer_id == ADMIN_ID:
+            if text.startswith('/текст'):
+                new_text = text[6:].strip()
+                if new_text:
+                    save_ad_text(new_text)
+                    send_msg(peer_id, f"✅ Текст обновлен!\n\nПредпросмотр:\n{new_text}")
                 else:
-                    ago = str(diff // 86400) + " дн назад"
-                text += "• " + username + " — " + ago + "\n"
-
-    await update.message.reply_text(text, parse_mode="HTML")
-
-
-# ============================================================
-# КНОПКИ
-# ============================================================
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    user_id = query.from_user.id
-
-    if query.data == "copy_link":
-        o = get_owner(user_id)
-        bot_username = (await context.bot.get_me()).username
-        link = "https://t.me/" + bot_username + "?start=" + o["code"]
-        await query.message.reply_text(
-            "📋 Твоя ссылка (нажми и удерживай, чтобы скопировать):\n\n"
-            "<code>" + link + "</code>",
-            parse_mode="HTML"
-        )
-
-    elif query.data == "my_stats":
-        o = get_owner(user_id)
-        await query.message.reply_text(
-            "📊 Твоя статистика:\n\n"
-            "📨 Получено анонимок: <b>" + str(o["messages_received"]) + "</b>",
-            parse_mode="HTML"
-        )
-
-    elif query.data == "cancel_send":
-        context.user_data.pop("sending_to", None)
-        await query.edit_message_text("❌ Отправка отменена.")
-
-
-# ============================================================
-# ОБРАБОТКА СООБЩЕНИЙ
-# ============================================================
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    import time
-    user = update.effective_user
-
-    if "sending_to" in context.user_data:
-        owner_id = context.user_data["sending_to"]
-        if owner_id == user.id:
-            await update.message.reply_text("❌ Нельзя писать самому себе.")
-            return
-        try:
-            if update.message.text:
-                await context.bot.send_message(
-                    chat_id=owner_id,
-                    text="📨 <b>Анонимное сообщение:</b>\n\n" + update.message.text,
-                    parse_mode="HTML"
-                )
-            elif update.message.photo:
-                cap = "📷 <b>Анонимное фото</b>"
-                if update.message.caption:
-                    cap += "\n" + update.message.caption
-                await context.bot.send_photo(chat_id=owner_id, photo=update.message.photo[-1].file_id, caption=cap, parse_mode="HTML")
-            elif update.message.video:
-                cap = "🎥 <b>Анонимное видео</b>"
-                if update.message.caption:
-                    cap += "\n" + update.message.caption
-                await context.bot.send_video(chat_id=owner_id, video=update.message.video.file_id, caption=cap, parse_mode="HTML")
-            elif update.message.voice:
-                await context.bot.send_voice(chat_id=owner_id, voice=update.message.voice.file_id, caption="🎤 <b>Анонимное голосовое</b>", parse_mode="HTML")
-            elif update.message.video_note:
-                await context.bot.send_video_note(chat_id=owner_id, video_note=update.message.video_note.file_id)
-            elif update.message.sticker:
-                await context.bot.send_sticker(chat_id=owner_id, sticker=update.message.sticker.file_id)
-            elif update.message.document:
-                cap = "📎 <b>Анонимный файл</b>"
-                if update.message.caption:
-                    cap += "\n" + update.message.caption
-                await context.bot.send_document(chat_id=owner_id, document=update.message.document.file_id, caption=cap, parse_mode="HTML")
-            elif update.message.animation:
-                await context.bot.send_animation(chat_id=owner_id, animation=update.message.animation.file_id, caption="🎞️ <b>Анонимная GIF</b>", parse_mode="HTML")
+                    send_msg(peer_id, "❌ Напиши текст после команды. Пример:\n/текст Привет! Заходите к нам...")
+            
+            elif text == '/показать':
+                current = get_ad_text()
+                send_msg(peer_id, f"📝 Текущий текст:\n\n{current}")
+                
+            elif text == '/список':
+                try:
+                    # Получаем список бесед
+                    conversations = vk.messages.getConversations(count=200)
+                    items = conversations['items']
+                    chats = [item for item in items if item['conversation']['peer']['type'] == 'chat']
+                    
+                    if not chats:
+                        send_msg(peer_id, "🤷‍♂️ Бот пока не добавлен ни в одну беседу.")
+                    else:
+                        res = f"📋 Бот добавлен в {len(chats)} бесед:\n\n"
+                        for item in chats:
+                            peer = item['conversation']['peer']
+                            res += f"ID: {peer['local_id']} | {peer.get('title', 'Без названия')}\n"
+                        send_msg(peer_id, res)
+                except Exception as e:
+                    send_msg(peer_id, f"❌ Ошибка получения списка: {e}")
+                    
+            elif text == '/рассылка':
+                ad = get_ad_text()
+                if "Реклама пока не задана" in ad:
+                    send_msg(peer_id, "❌ Сначала задай текст через /текст")
+                    continue
+                    
+                send_msg(peer_id, "🚀 Начинаю рассылку по всем беседам...")
+                
+                try:
+                    conversations = vk.messages.getConversations(count=200)
+                    items = conversations['items']
+                    chats = [item for item in items if item['conversation']['peer']['type'] == 'chat']
+                    
+                    success = 0
+                    for item in chats:
+                        target_peer = item['conversation']['peer']['id']
+                        send_msg(target_peer, ad)
+                        success += 1
+                        time.sleep(1) # Задержка чтобы не забанили
+                    
+                    send_msg(peer_id, f"✅ Рассылка завершена! Отправлено в {success} чатов.")
+                except Exception as e:
+                    send_msg(peer_id, f"❌ Ошибка рассылки: {e}")
+                    
             else:
-                await update.message.reply_text("❌ Такой тип сообщений не поддерживается.")
-                return
-
-            o = get_owner(owner_id)
-            o["messages_received"] += 1
-            o["last_seen"] = int(time.time())
-
-            await update.message.reply_text(
-                "✅ Сообщение отправлено анонимно!\n\n"
-                "Можешь отправить ещё одно или закрыть бота."
-            )
-        except Exception as e:
-            logging.error("Ошибка: " + str(e))
-            await update.message.reply_text("❌ Не удалось отправить. Возможно, получатель заблокировал бота.")
-        return
-
-    await update.message.reply_text(
-        "💬 Ты сейчас не отправляешь анонимку.\n\n"
-        "Чтобы получить свою ссылку — /start"
-    )
-
-
-# ============================================================
-# ЗАПУСК
-# ============================================================
-def main():
-    if not BOT_TOKEN:
-        print("❌ Нет токена!")
-        return
-    if ADMIN_ID == 0:
-        print("⚠️ ВНИМАНИЕ: ADMIN_ID не указан! Команда /stats не будет работать.")
-        print("Узнай свой ID через @userinfobot и вставь в код.")
-    print("🚀 Бот анонимных вопросов запущен...")
-    print("📊 Команда /stats доступна админу: " + str(ADMIN_ID))
-
-    app = Application.builder().token(BOT_TOKEN).build()
-
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("help", help_cmd))
-    app.add_handler(CommandHandler("my_link", my_link))
-    app.add_handler(CommandHandler("stats", stats_cmd))
-    app.add_handler(CallbackQueryHandler(button_handler))
-    app.add_handler(MessageHandler(
-        ~filters.COMMAND & (
-            filters.TEXT | filters.PHOTO | filters.VIDEO |
-            filters.VOICE | filters.VIDEO_NOTE | filters.Sticker.ALL |
-            filters.Document.ALL | filters.ANIMATION
-        ),
-        handle_message
-    ))
-
-    print("✅ Готов!")
-    app.run_polling()
-
-
-if __name__ == "__main__":
-    main()
+                send_msg(peer_id, "👋 Привет, Админ!\n\nКоманды:\n/текст [текст] — задать рекламу\n/показать — посмотреть текущую\n/список — список чатов\n/рассылка — разослать по всем чатам")
