@@ -1,128 +1,136 @@
 import asyncio
 import logging
+import os
 from aiogram import Bot, Dispatcher, types, F
-from aiogram.filters import CommandStart, Command
+from aiogram.filters import CommandStart
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
 # --- НАСТРОЙКИ ---
-BOT_TOKEN = "8837183643:AAGn77c7A2fWdi1H7S45vOa8DuFj6VYEcBk"
-# Замените на свои ссылки
+BOT_TOKEN = os.getenv("8837183643:AAGn77c7A2fWdi1H7S45vOa8DuFj6VYEcBk")
 TERMS_URL = "https://telegra.ph/Ваша-ссылка-на-правила-01-01"
 PRIVACY_URL = "https://telegra.ph/Ваша-ссылка-на-политику-01-01"
-# Путь к картинке с осенними листьями. Положите картинку рядом с файлом main.py
 WELCOME_IMAGE = "welcome.jpg" 
 
-logging.basicConfig(level=logging.INFO)
+# ВАЖНО: Сюда впиши ID тех трех человек, кому должны приходить анонимки
+# Узнать ID можно через бота @userinfobot
+ADMIN_IDS = ["7599142732"] # ЗАМЕНИ НА РЕАЛЬНЫЕ ID!
 
+logging.basicConfig(level=logging.INFO)
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# Машина состояний для ожидания сообщения
 class AnonState(StatesGroup):
     waiting_for_message = State()
 
-# --- КЛАВИАТУРЫ ---
 def get_cancel_keyboard():
-    kb = InlineKeyboardMarkup(inline_keyboard=[
+    return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="❌ Отменить", callback_data="cancel_anon")]
     ])
-    return kb
 
-# --- ОБРАБОТЧИКИ ---
-
-# 1. Приветствие (как на 2 скрине)
+# 1. Приветствие и ВЫДАЧА ССЫЛКИ ДЛЯ КАНАЛА (только для админов)
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message):
-    text = (
-        "<b>Что умеет этот бот?</b>\n\n"
-        "В этом боте ты можешь получать анонимные* сообщения 🚀\n\n"
-        f"📖 Пользовательское соглашение - <a href='{TERMS_URL}'>ссылка</a>\n"
-        f"🔒 Политика конфиденциальности - <a href='{PRIVACY_URL}'>ссылка</a>\n\n"
-        "<i>*Платные функции могут ограничивать анонимность</i>"
-    )
+    user_id_str = str(message.from_user.id)
     
-    try:
-        # Отправляем картинку с текстом
-        photo = FSInputFile(WELCOME_IMAGE)
-        await message.answer_photo(photo=photo, caption=text, parse_mode="HTML")
-    except Exception as e:
-        # Если картинки нет, отправим просто текст
-        await message.answer(text=text, parse_mode="HTML")
+    # Если зашел админ - показываем ему меню и ссылку для канала
+    if user_id_str in ADMIN_IDS:
+        text = (
+            "<b>Панель администратора</b> 👑\n\n"
+            "Скопируй ссылку ниже и скинь её в свой канал. "
+            "Все, кто перейдет по ней, смогут написать анонимно сразу всем админам!"
+        )
+        
+        # Формируем ссылку из всех ID админов через запятую
+        ids_string = ",".join(ADMIN_IDS)
+        bot_info = await bot.get_me()
+        channel_link = f"https://t.me/{bot_info.username}?start=user_{ids_string}"
+        
+        await message.answer(
+            f"{text}\n\n🔗 <b>Твоя ссылка для канала:</b>\n"
+            f"<code>{channel_link}</code>",
+            parse_mode="HTML"
+        )
+    else:
+        # Если зашел обычный человек (не админ) - показываем ему инфо
+        text = (
+            "<b>Что умеет этот бот?</b>\n\n"
+            "Здесь ты можешь отправлять анонимные сообщения 🚀\n\n"
+            f"📖 Правила - <a href='{TERMS_URL}'>ссылка</a>\n"
+            f"🔒 Политика - <a href='{PRIVACY_URL}'>ссылка</a>"
+        )
+        try:
+            photo = FSInputFile(WELCOME_IMAGE)
+            await message.answer_photo(photo=photo, caption=text, parse_mode="HTML")
+        except Exception:
+            await message.answer(text=text, parse_mode="HTML")
 
-    # Даем ссылку для получения анонимок
-    bot_info = await bot.get_me()
-    await message.answer(
-        f"🔗 Ваша ссылка для сбора анонимок:\n"
-        f"<code>https://t.me/{bot_info.username}?start=user_{message.from_user.id}</code>",
-        parse_mode="HTML"
-    )
-
-# 2. Ловим переход по ссылке (когда человек хочет написать анонимку)
+# 2. Переход по ссылке из канала (любой человек)
 @dp.message(CommandStart(deep_link=True))
 async def cmd_start_deeplink(message: types.Message, command: CommandStart, state: FSMContext):
-    # command.args содержит "user_12345678" (ID автора)
     args = command.args
     
     if args.startswith("user_"):
-        author_id = args.split("_")[1]
+        ids_string = args.replace("user_", "")
+        author_ids = [uid.strip() for uid in ids_string.split(",") if uid.strip()]
         
-        # Сохраняем ID автора в состояние
-        await state.update_data(author_id=author_id)
+        if not author_ids:
+            await message.answer("Ошибка: неверная ссылка.")
+            return
+
+        # Сохраняем список ID (в нашем случае это 3 админа)
+        await state.update_data(author_ids=author_ids)
         await state.set_state(AnonState.waiting_for_message)
         
-        # Текст как на 1 скрине
         text = (
-            "⚡️ <b>Анонимное сообщение для автора ссылки</b>\n\n"
+            "⚡️ <b>Анонимное сообщение</b>\n\n"
             "💀 Напишите или отправьте здесь всё, что хотите*\n"
             "– отправитель останется неизвестным\n\n"
             "<b>Вы можете отправить</b> 📝 <i>текст</i>, 🎙 <i>голосовые</i>, 📸 <i>фото/видео</i>, "
-            "🎥 <i>видеосообщения (кружки)</i>, 🏷 <i>стикеры</i> и тд"
+            "🎥 <i>видеосообщения</i>, 🏷 <i>стикеры</i> и тд"
         )
         
         await message.answer(text=text, reply_markup=get_cancel_keyboard(), parse_mode="HTML")
     else:
-        # Если перешли просто по ссылке без ID
         await cmd_start(message)
 
-# 3. Обработка самого анонимного сообщения
+# 3. Отправка анонимки админам
 @dp.message(AnonState.waiting_for_message, F.text | F.photo | F.video | F.voice | F.video_note | F.sticker)
 async def process_anon_message(message: types.Message, state: FSMContext):
     data = await state.get_data()
-    author_id = data.get("author_id")
+    author_ids = data.get("author_ids", [])
     
-    if not author_id:
-        await message.answer("Ошибка: не найден получатель. Попробуйте перейти по ссылке заново.")
+    if not author_ids:
+        await message.answer("Ошибка: не найден получатель.")
         await state.clear()
         return
 
-    try:
-        # Пересылаем сообщение автору БЕЗ указания отправителя (анонимно)
-        # Используем copy_message, чтобы не было видно "Переслано от..."
-        await bot.copy_message(
-            chat_id=author_id,
-            from_chat_id=message.chat.id,
-            message_id=message.message_id
-        )
-        
-        await message.answer("✅ Ваше сообщение отправлено анонимно!")
-    except Exception as e:
-        # Если автор заблокировал бота или не начинал с ним диалог
-        await message.answer("⚠️ Не удалось отправить сообщение. Возможно, автор ограничил прием сообщений.")
-        logging.error(f"Ошибка отправки анонимки: {e}")
+    success_count = 0
+    for author_id in author_ids:
+        try:
+            await bot.copy_message(
+                chat_id=author_id,
+                from_chat_id=message.chat.id,
+                message_id=message.message_id
+            )
+            success_count += 1
+        except Exception as e:
+            logging.error(f"Ошибка отправки для ID {author_id}: {e}")
+
+    if success_count > 0:
+        await message.answer(f"✅ Сообщение отправлено анонимно!")
+    else:
+        await message.answer("⚠️ Не удалось отправить. Возможно, админы не нажали /start в боте.")
     
-    # Очищаем состояние после отправки
     await state.clear()
 
-# 4. Обработка кнопки "Отменить"
 @dp.callback_query(F.data == "cancel_anon")
 async def cancel_anon(callback: types.CallbackQuery, state: FSMContext):
     await state.clear()
     await callback.message.edit_text("❌ Отправка отменена.")
     await callback.answer()
 
-# Запуск бота
 async def main():
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
