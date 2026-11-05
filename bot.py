@@ -15,7 +15,7 @@ WELCOME_IMAGE = "welcome.jpg"
 
 # ВАЖНО: Сюда впиши ID тех трех человек, кому должны приходить анонимки
 # Узнать ID можно через бота @userinfobot
-ADMIN_IDS = ["7599142732"] # ЗАМЕНИ НА РЕАЛЬНЫЕ ID!
+ADMIN_IDS = ["7599142732","1673532605"] # ЗАМЕНИ НА РЕАЛЬНЫЕ ID!
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=BOT_TOKEN)
