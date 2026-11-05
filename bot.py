@@ -9,7 +9,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.exceptions import TelegramForbiddenError, TelegramBadRequest
 
 # ================= НАСТРОЙКИ =================
-BOT_TOKEN = os.getenv("8837183643:AAGn77c7A2fWdi1H7S45vOa8DuFj6VYEcBk")
+BOT_TOKEN ="8837183643:AAGn77c7A2fWdi1H7S45vOa8DuFj6VYEcBk"
 
 # Ссылки (замени на свои)
 TERMS_URL = "https://telegra.ph/Правила-01-01"
